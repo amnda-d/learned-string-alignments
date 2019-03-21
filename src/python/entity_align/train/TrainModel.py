@@ -34,19 +34,21 @@ from entity_align.utils.Config import Config
 from entity_align.utils.DevTestBatcher import DevBatcher
 from entity_align.utils.Util import save_dict_to_json
 
-def train_model(config,dataset_name,model_name):
+
+def train_model(config, dataset_name, model_name):
     """ Train based on the given config, model / dataset
-    
+
     :param config: config object
     :param dataset_name: name of dataset
     :param model_name: name of model
-    :return: 
+    :return:
     """
     config.dataset_name = dataset_name
     now = datetime.datetime.now()
     config.model_name = model_name
-    ts = "{:04d}-{:02d}-{:02d}-{:02d}-{:02d}-{:02d}".format(now.year, now.month, now.day, now.hour, now.minute,
-                                                            now.second)
+    ts = "{:04d}-{:02d}-{:02d}-{:02d}-{:02d}-{:02d}".format(
+        now.year, now.month, now.day, now.hour, now.minute, now.second
+    )
     config.experiment_out_dir = os.path.join("exp_out", dataset_name, model_name, ts)
 
     # Load vocab
@@ -59,14 +61,16 @@ def train_model(config,dataset_name,model_name):
     # save the config to outdir
     config.save_config(output_dir)
     # save the vocab to out dir
-    copyfile(config.vocab_file, os.path.join(output_dir, 'vocab.tsv'))
+    copyfile(config.vocab_file, os.path.join(output_dir, "vocab.tsv"))
     # save the source code.
-    copytree(os.path.join(os.environ['SED_ROOT'], 'src'), os.path.join(output_dir, 'src'))
+    copytree(
+        os.path.join(os.environ["SED_ROOT"], "src"), os.path.join(output_dir, "src")
+    )
 
     torch.manual_seed(config.random_seed)
 
     # Set up batcher
-    batcher = Batcher(config, vocab, 'train')
+    batcher = Batcher(config, vocab, "train")
 
     model = None
     # Set up Model
@@ -82,9 +86,12 @@ def train_model(config,dataset_name,model_name):
         print("Unknown model")
         sys.exit(1)
 
-    model.cuda()
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.learning_rate,
-                           weight_decay=config.l2penalty)
+    model.cuda() if "CUDA_VISIBLE_DEVICES" in os.environ else model.cpu()
+    optimizer = optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=config.learning_rate,
+        weight_decay=config.l2penalty,
+    )
 
     # Stats
     best_map = 0
@@ -108,40 +115,71 @@ def train_model(config,dataset_name,model_name):
             # print("p-n:{}".format(model.print_loss(source,pos,neg,source_len,pos_len,neg_len)))
             this_loss = loss.cpu().data.numpy()[0]
             sum_loss += this_loss
-            print("Processed {} batches, Loss of batch {}: {}. Average loss: {}".format(counter, counter, this_loss,
-                                                                                        sum_loss / (counter / 100)))
+            print(
+                "Processed {} batches, Loss of batch {}: {}. Average loss: {}".format(
+                    counter, counter, this_loss, sum_loss / (counter / 100)
+                )
+            )
             sys.stdout.flush()
 
         if counter % config.eval_every == 0:
             dev_batcher = DevBatcher(config, vocab)
-            prediction_filename = os.path.join(output_dir, 'dev.predictions.{}.tsv').format(counter)
+            prediction_filename = os.path.join(
+                output_dir, "dev.predictions.{}.tsv"
+            ).format(counter)
             write_predictions(model, dev_batcher, prediction_filename)
             scores = ""
             map_score = float(eval_map_file(prediction_filename))
             hits_at_1 = float(eval_hits_at_k_file(prediction_filename, 1))
             hits_at_10 = float(eval_hits_at_k_file(prediction_filename, 10))
             hits_at_50 = float(eval_hits_at_k_file(prediction_filename, 50))
-            scores += "{}\t{}\t{}\tMAP\t{}\n".format(config.model_name, config.dataset_name, counter, map_score)
-            scores += "{}\t{}\t{}\tHits@1\t{}\n".format(config.model_name, config.dataset_name, counter, hits_at_1)
-            scores += "{}\t{}\t{}\tHits@10\t{}\n".format(config.model_name, config.dataset_name, counter, hits_at_10)
-            scores += "{}\t{}\t{}\tHits@50\t{}\n".format(config.model_name, config.dataset_name, counter, hits_at_50)
+            scores += "{}\t{}\t{}\tMAP\t{}\n".format(
+                config.model_name, config.dataset_name, counter, map_score
+            )
+            scores += "{}\t{}\t{}\tHits@1\t{}\n".format(
+                config.model_name, config.dataset_name, counter, hits_at_1
+            )
+            scores += "{}\t{}\t{}\tHits@10\t{}\n".format(
+                config.model_name, config.dataset_name, counter, hits_at_10
+            )
+            scores += "{}\t{}\t{}\tHits@50\t{}\n".format(
+                config.model_name, config.dataset_name, counter, hits_at_50
+            )
             print(scores)
-            score_obj = {"samples": counter, "map": map_score, "hits_at_1": hits_at_1, "hits_at_10": hits_at_10, "hits_at_50": hits_at_50,
-                         "config": config.__dict__}
+            score_obj = {
+                "samples": counter,
+                "map": map_score,
+                "hits_at_1": hits_at_1,
+                "hits_at_10": hits_at_10,
+                "hits_at_50": hits_at_50,
+                "config": config.__dict__,
+            }
             print(score_obj)
-            save_dict_to_json(score_obj, os.path.join(output_dir, 'dev.scores.{}.json'.format(counter)))
-            with open(os.path.join(output_dir, 'dev.scores.{}.tsv'.format(counter)), 'w') as fout:
+            save_dict_to_json(
+                score_obj,
+                os.path.join(output_dir, "dev.scores.{}.json".format(counter)),
+            )
+            with open(
+                os.path.join(output_dir, "dev.scores.{}.tsv".format(counter)), "w"
+            ) as fout:
                 fout.write(scores)
             if map_score > best_map:
                 print("New best MAP!")
                 print("Saving Model.....")
-                torch.save(model, os.path.join(output_dir,
-                                               'model_{}_{}_{}.torch'.format(config.model_name, config.dataset_name,
-                                                                             counter)))
+                torch.save(
+                    model,
+                    os.path.join(
+                        output_dir,
+                        "model_{}_{}_{}.torch".format(
+                            config.model_name, config.dataset_name, counter
+                        ),
+                    ),
+                )
                 best_map = map_score
             sys.stdout.flush()
         if counter == config.num_minibatches:
             break
+
 
 if __name__ == "__main__":
 
@@ -149,4 +187,4 @@ if __name__ == "__main__":
     config = Config(sys.argv[1])
     dataset_name = sys.argv[2]
     model_name = sys.argv[3]
-    train_model(config,dataset_name,model_name)
+    train_model(config, dataset_name, model_name)
